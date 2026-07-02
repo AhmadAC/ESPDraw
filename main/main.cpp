@@ -1,0 +1,34 @@
+#include "nvs_flash.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+// Custom Modules
+#include "config.h"
+#include "motor_control.h"
+#include "wifi_manager.h"
+#include "system_utils.h"
+
+extern "C" void app_main(void) {
+    // 1. Initialize Non-Volatile Storage
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+
+    // 2. Core Initializations
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    
+    // 3. Initialize Motors to default stopped state
+    init_motors();
+
+    // 4. Start Background Tasks
+    xTaskCreate(boot_button_task, "button_task", 2048, NULL, 10, NULL);
+    xTaskCreate(console_read_task, "console_read_task", 4096, NULL, 5, NULL);
+
+    // 5. Initialize WiFi & Server Setup
+    wifi_init_and_connect();
+}

@@ -1,0 +1,73 @@
+name: Build ESP32-S3 Drawbridge Controller
+
+on:
+  push:
+    branches: [ "startagain", "master", "main" ]
+  pull_request:
+    branches: [ "startagain", "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-espidf:
+    name: Build Drawbridge Firmware
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.2
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Compile ESP-IDF Project
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          git config --global --add safe.directory "*"
+          mkdir -p build_out
+          
+          echo "=========================================="
+          echo "Compiling Drawbridge Project"
+          echo "=========================================="
+          
+          if [ -f "sdkconfig.defaults" ]; then
+              echo "Auto-repairing sdkconfig.defaults format..."
+              sed -i 's/CONFIG_\([A-Za-z0-9_]*\) \([-0-9A-Za-z_]*\)/CONFIG_\1=\2/g' sdkconfig.defaults
+          fi
+          
+          idf.py set-target esp32s3
+          idf.py build
+          
+          cp "build/bootloader/bootloader.bin" "build_out/" 2>/dev/null || true
+          cp "build/partition_table/partition-table.bin" "build_out/partition-table.bin" 2>/dev/null || true
+          cp "build/partition_table/partition-table.bin" "build_out/partitions.bin" 2>/dev/null || true
+          
+          find build -maxdepth 1 -name "*.bin" -exec cp {} "build_out/" \;
+          
+          app_bin=$(find build_out -maxdepth 1 -name "*.bin" ! -name "bootloader.bin" ! -name "partition-table.bin" ! -name "partitions.bin" -exec basename {} \;)
+          
+          if [ -z "$app_bin" ]; then
+              app_bin="esp32_s3_drawbridge.bin"
+          fi
+          
+          echo "Generating Web Flasher manifest.json..."
+          echo '{' > build_out/manifest.json
+          echo '  "name": "ESP32-S3 Drawbridge Controller",' >> build_out/manifest.json
+          echo '  "version": "1.0.0",' >> build_out/manifest.json
+          echo '  "builds": [' >> build_out/manifest.json
+          echo "    {" >> build_out/manifest.json
+          echo '      "chipFamily": "ESP32-S3",' >> build_out/manifest.json
+          echo '      "parts": [' >> build_out/manifest.json
+          echo '        { "path": "bootloader.bin", "offset": 0 },' >> build_out/manifest.json
+          echo '        { "path": "partitions.bin", "offset": 32768 },' >> build_out/manifest.json
+          echo "        { \"path\": \"$app_bin\", \"offset\": 65536 }" >> build_out/manifest.json
+          echo "      ]" >> build_out/manifest.json
+          echo "    }" >> build_out/manifest.json
+          echo "  ]" >> build_out/manifest.json
+          echo "}" >> build_out/manifest.json
+
+      - name: Upload ESP-IDF Compiled Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-s3-drawbridge-binaries
+          path: build_out/

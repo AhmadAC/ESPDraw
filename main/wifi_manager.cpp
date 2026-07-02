@@ -100,9 +100,12 @@ void start_ap_server() {
     esp_netif_t *ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     if (ap_netif) {
         esp_netif_ip_info_t ip_info;
-        IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
-        IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
-        IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+        
+        // ESP-IDF V5 IP4 macro updates
+        esp_netif_set_ip4_addr(&ip_info.ip, 192, 168, 4, 1);
+        esp_netif_set_ip4_addr(&ip_info.gw, 192, 168, 4, 1);
+        esp_netif_set_ip4_addr(&ip_info.netmask, 255, 255, 255, 0);
+        
         esp_netif_dhcps_stop(ap_netif);
         esp_netif_set_ip_info(ap_netif, &ip_info);
         esp_netif_dhcps_start(ap_netif);

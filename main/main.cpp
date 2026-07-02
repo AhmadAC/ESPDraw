@@ -10,7 +10,12 @@
 #include "wifi_manager.h"
 #include "system_utils.h"
 
-extern "C" void app_main(void) {
+// Explicitly declare app_main with C linkage to fix the linker error
+extern "C" {
+    void app_main(void);
+}
+
+void app_main(void) {
     // 1. Initialize Non-Volatile Storage
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {

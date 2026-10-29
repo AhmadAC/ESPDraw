@@ -26,7 +26,7 @@ const char HTML_UI[] = R"raw_html(
     .container { width: 100%; max-width: 500px; }
     .card { background: var(--card); padding: 25px; border-radius: 20px; border: 1px solid #334155; text-align: center; margin-bottom: 20px; }
     h2 { color: var(--primary); margin-top: 0; }
-    input, select { width: 100%; padding: 12px; margin: 8px 0 20px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; }
+    input[type=password], select { width: 100%; padding: 12px; margin: 8px 0 20px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; }
     button { width: 100%; padding: 15px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; margin-top:10px; transition: transform 0.1s; }
     button:active { transform: scale(0.96); opacity: 0.9; }
     .btn-green { background: #10b981; }
@@ -34,6 +34,10 @@ const char HTML_UI[] = R"raw_html(
     .btn-gray { background: #475569; }
     .status-bar { padding: 12px; border-radius: 10px; font-weight: bold; text-align: center; font-size: 0.85rem; border: 1px solid; text-transform: uppercase; background: #172554; color: #93c5fd; border-color: #3b82f6; margin-bottom:15px; }
     .text-sm { font-size: 0.85rem; color: #94a3b8; margin-bottom:10px; }
+    .badge-safe { font-size: 0.76rem; background: #064e3b; color: #6ee7b7; padding: 7px 10px; border-radius: 8px; border: 1px solid #059669; margin: 12px 0 16px 0; display: block; }
+    input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 10px; border-radius: 5px; background: #334155; outline: none; margin: 12px 0; padding: 0; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #0ea5e9; cursor: pointer; border: 2px solid #ffffff; }
+    input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: #0ea5e9; cursor: pointer; border: 2px solid #ffffff; }
 </style>
 </head>
 <body>
@@ -43,13 +47,26 @@ const char HTML_UI[] = R"raw_html(
         <!-- Controls Card -->
         <div class="card">
             <h2>Control Bridge</h2>
-            <div class="text-sm"><b>Current State:</b> <span id="lastcmd" style="color:#3b82f6;">Loading...</span></div>
+            <div class="text-sm"><b>Current State:</b> <span id="lastcmd" style="color:#38bdf8;">Loading...</span></div>
             
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px;">
+                <span style="font-weight:bold; font-size:0.9rem;">Speed & Direction:</span>
+                <span id="speedVal" style="font-weight:bold; color:#38bdf8;">0% (STOPPED)</span>
+            </div>
+
+            <input type="range" id="speed" min="-100" max="100" value="0" step="5" oninput="onSliderInput(this.value)" onchange="onSliderChange(this.value)">
+            
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#94a3b8; margin-top:-8px; margin-bottom:10px;">
+                <span>-100% (Close)</span><span>0% (Stop)</span><span>+100% (Open)</span>
+            </div>
+
+            <div class="badge-safe">🛡️ Safe Power Limit: 80% Max Duty &bull; 15s Auto-Stop Protection Active</div>
+
             <button class="btn-green" onclick="c('open')">OPEN BRIDGE</button>
             <button class="btn-red" onclick="c('close')">CLOSE BRIDGE</button>
             <button class="btn-gray" onclick="c('stop')">STOP</button>
             
-            <p id="cstat" class="text-sm" style="margin-top:15px;"></p>
+            <p id="cstat" class="text-sm" style="margin-top:15px; min-height: 1.2em;"></p>
         </div>
 
         <!-- Wi-Fi Setup Card -->
@@ -71,11 +88,46 @@ const char HTML_UI[] = R"raw_html(
     </div>
 
     <script>
+        let isSliding = false;
+
+        function updateSpeedLabel(val){
+            let num = parseInt(val, 10);
+            let label = num + "%";
+            if (num > 0) label += " (OPEN)";
+            else if (num < 0) label += " (CLOSE)";
+            else label += " (STOPPED)";
+            document.getElementById('speedVal').innerText = label;
+        }
+
+        function onSliderInput(val){
+            isSliding = true;
+            updateSpeedLabel(val);
+        }
+
+        function onSliderChange(val){
+            isSliding = false;
+            updateSpeedLabel(val);
+            sendSpeed(val);
+        }
+
+        function sendSpeed(val){
+            document.getElementById('cstat').innerText = 'Setting speed: ' + val + '%...';
+            fetch('/speed?val=' + val)
+                .then(r => r.text())
+                .then(t => {
+                    document.getElementById('cstat').innerText = 'Speed updated: ' + val + '%';
+                    setTimeout(loadStatus, 400);
+                })
+                .catch(() => {
+                    document.getElementById('cstat').innerText = 'Speed update failed';
+                });
+        }
+
         function c(cmd){
-            document.getElementById('cstat').innerText = 'Sending...';
+            document.getElementById('cstat').innerText = 'Sending command...';
             fetch('/bridge?cmd='+cmd).then(r=>r.text()).then(t=>{
                 document.getElementById('cstat').innerText = 'Status: ' + t;
-                setTimeout(loadStatus, 600);
+                setTimeout(loadStatus, 400);
             });
         }
         
@@ -108,10 +160,15 @@ const char HTML_UI[] = R"raw_html(
         function loadStatus(){
             fetch('/status').then(r=>r.json()).then(d=>{
                 document.getElementById('lastcmd').innerText = d.last_cmd;
-            });
+                if (!isSliding && d.speed !== undefined) {
+                    let slider = document.getElementById('speed');
+                    slider.value = d.speed;
+                    updateSpeedLabel(d.speed);
+                }
+            }).catch(()=>{});
         }
 
-        setInterval(loadStatus, 3000);
+        setInterval(loadStatus, 2500);
         window.onload = loadStatus;
     </script>
 </body></html>
@@ -131,27 +188,49 @@ static esp_err_t captive_portal_redirect(httpd_req_t *req) {
 }
 
 static esp_err_t bridge_get_handler(httpd_req_t *req) {
-    char buf[50];
+    char buf[64];
     if (httpd_req_get_url_query_str(req, buf, sizeof(buf)) == ESP_OK) {
-        char param[20];
+        char param[32];
+        if (httpd_query_key_value(buf, "speed", param, sizeof(param)) == ESP_OK) {
+            set_bridge_speed(atoi(param));
+            httpd_resp_sendstr(req, "Speed Updated");
+            return ESP_OK;
+        }
         if (httpd_query_key_value(buf, "cmd", param, sizeof(param)) == ESP_OK) {
             execute_bridge_command(param);
             httpd_resp_sendstr(req, "Command Sent");
             return ESP_OK;
         }
     }
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing cmd parameter");
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing cmd or speed parameter");
+    return ESP_FAIL;
+}
+
+static esp_err_t speed_get_handler(httpd_req_t *req) {
+    char buf[64];
+    if (httpd_req_get_url_query_str(req, buf, sizeof(buf)) == ESP_OK) {
+        char val[32];
+        if (httpd_query_key_value(buf, "val", val, sizeof(val)) == ESP_OK ||
+            httpd_query_key_value(buf, "speed", val, sizeof(val)) == ESP_OK) {
+            set_bridge_speed(atoi(val));
+            httpd_resp_sendstr(req, "Speed OK");
+            return ESP_OK;
+        }
+    }
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing val parameter");
     return ESP_FAIL;
 }
 
 static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "last_cmd", last_command_str);
-    
+    cJSON_AddNumberToObject(root, "speed", current_speed_pct);
+    cJSON_AddNumberToObject(root, "max_limit", MOTOR_MAX_SAFE_DUTY_PERCENT);
+
     char *json_str = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_str, strlen(json_str));
-    
+
     free(json_str);
     cJSON_Delete(root);
     return ESP_OK;
@@ -164,16 +243,18 @@ static esp_err_t scan_get_handler(httpd_req_t *req) {
     esp_wifi_scan_get_ap_num(&ap_count);
     wifi_ap_record_t *ap_info = (wifi_ap_record_t *)malloc(sizeof(wifi_ap_record_t) * ap_count);
     esp_wifi_scan_get_ap_records(&ap_count, ap_info);
-    
+
     cJSON *root = cJSON_CreateArray();
-    for(int i = 0; i < ap_count; i++) cJSON_AddItemToArray(root, cJSON_CreateString((char*)ap_info[i].ssid));
-    
+    for (int i = 0; i < ap_count; i++) {
+        cJSON_AddItemToArray(root, cJSON_CreateString((char*)ap_info[i].ssid));
+    }
+
     char* json_str = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_str, strlen(json_str));
-    
-    free(ap_info); 
-    cJSON_Delete(root); 
+
+    free(ap_info);
+    cJSON_Delete(root);
     free(json_str);
     return ESP_OK;
 }
@@ -184,12 +265,12 @@ static esp_err_t save_post_handler(httpd_req_t *req) {
     size_t recv_len = (remaining < (int)sizeof(buf)) ? remaining : (int)sizeof(buf);
     if ((ret = httpd_req_recv(req, buf, recv_len)) <= 0) return ESP_FAIL;
     buf[ret] = '\0';
-    
+
     cJSON *json = cJSON_Parse(buf);
-    if(json) {
+    if (json) {
         cJSON *s = cJSON_GetObjectItem(json, "ssid");
         cJSON *p = cJSON_GetObjectItem(json, "pass");
-        if(s && p) {
+        if (s && p) {
             nvs_handle_t my_handle;
             nvs_open("storage", NVS_READWRITE, &my_handle);
             nvs_set_str(my_handle, "wifi_ssid", s->valuestring);
@@ -230,27 +311,29 @@ static esp_err_t switch_wifi_post_handler(httpd_req_t *req) {
 void start_web_server() {
     if (server == NULL) {
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-        config.max_uri_handlers = 15;
+        config.max_uri_handlers = 20;
         config.uri_match_fn = httpd_uri_match_wildcard;
-        
+
         if (httpd_start(&server, &config) == ESP_OK) {
-            httpd_uri_t uri_index  = { .uri = "/",       .method = HTTP_GET,  .handler = index_get_handler,  .user_ctx = NULL };
-            httpd_uri_t uri_scan   = { .uri = "/scan",   .method = HTTP_GET,  .handler = scan_get_handler,   .user_ctx = NULL };
-            httpd_uri_t uri_save   = { .uri = "/save",   .method = HTTP_POST, .handler = save_post_handler,  .user_ctx = NULL };
-            httpd_uri_t uri_bridge = { .uri = "/bridge", .method = HTTP_GET,  .handler = bridge_get_handler, .user_ctx = NULL };
-            httpd_uri_t uri_status = { .uri = "/status", .method = HTTP_GET,  .handler = status_get_handler, .user_ctx = NULL };
+            httpd_uri_t uri_index       = { .uri = "/",               .method = HTTP_GET,  .handler = index_get_handler,       .user_ctx = NULL };
+            httpd_uri_t uri_scan        = { .uri = "/scan",           .method = HTTP_GET,  .handler = scan_get_handler,        .user_ctx = NULL };
+            httpd_uri_t uri_save        = { .uri = "/save",           .method = HTTP_POST, .handler = save_post_handler,       .user_ctx = NULL };
+            httpd_uri_t uri_bridge      = { .uri = "/bridge",         .method = HTTP_GET,  .handler = bridge_get_handler,      .user_ctx = NULL };
+            httpd_uri_t uri_speed       = { .uri = "/speed",          .method = HTTP_GET,  .handler = speed_get_handler,       .user_ctx = NULL };
+            httpd_uri_t uri_status      = { .uri = "/status",         .method = HTTP_GET,  .handler = status_get_handler,      .user_ctx = NULL };
             httpd_uri_t uri_switch_ap   = { .uri = "/switch_to_ap",   .method = HTTP_POST, .handler = switch_ap_post_handler,   .user_ctx = NULL };
             httpd_uri_t uri_switch_wifi = { .uri = "/switch_to_wifi", .method = HTTP_POST, .handler = switch_wifi_post_handler, .user_ctx = NULL };
-            
-            httpd_uri_t uri_cp1 = { .uri = "/generate_204", .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
-            httpd_uri_t uri_cp2 = { .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
-            httpd_uri_t uri_cp3 = { .uri = "/ncsi.txt", .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
-            httpd_uri_t uri_fallback = { .uri = "/*", .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
-            
+
+            httpd_uri_t uri_cp1         = { .uri = "/generate_204",        .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
+            httpd_uri_t uri_cp2         = { .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
+            httpd_uri_t uri_cp3         = { .uri = "/ncsi.txt",            .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
+            httpd_uri_t uri_fallback    = { .uri = "/*",                   .method = HTTP_GET, .handler = captive_portal_redirect, .user_ctx = NULL };
+
             httpd_register_uri_handler(server, &uri_index);
             httpd_register_uri_handler(server, &uri_scan);
             httpd_register_uri_handler(server, &uri_save);
             httpd_register_uri_handler(server, &uri_bridge);
+            httpd_register_uri_handler(server, &uri_speed);
             httpd_register_uri_handler(server, &uri_status);
             httpd_register_uri_handler(server, &uri_switch_ap);
             httpd_register_uri_handler(server, &uri_switch_wifi);
@@ -258,7 +341,7 @@ void start_web_server() {
             httpd_register_uri_handler(server, &uri_cp2);
             httpd_register_uri_handler(server, &uri_cp3);
             httpd_register_uri_handler(server, &uri_fallback);
-            
+
             ESP_LOGI(TAG, "Web Server started successfully on port %d", config.server_port);
         }
     }

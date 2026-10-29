@@ -2,7 +2,8 @@
 #include "config.h"
 #include "esp_log.h"
 #include "driver/ledc.h"
-#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -10,12 +11,13 @@
 static const char *TAG = "MOTOR";
 char last_command_str[32] = "STOPPED";
 int current_speed_pct = 0;
-static esp_timer_handle_t s_safety_timer = NULL;
+static TimerHandle_t s_safety_timer = NULL;
 
-static void safety_timer_callback(void* arg) {
+static void safety_timer_callback(TimerHandle_t xTimer) {
     ESP_LOGW(TAG, "Safety runtime limit reached (%d s). Auto-stopping motor to prevent burnout.", MOTOR_MAX_RUNTIME_SEC);
     stop_bridge();
     strncpy(last_command_str, "TIMEOUT STOP", sizeof(last_command_str) - 1);
+    last_command_str[sizeof(last_command_str) - 1] = '\0';
 }
 
 static uint32_t calculate_safe_duty(int speed_pct) {
@@ -70,15 +72,14 @@ void init_motors() {
     ch_b.hpoint = 0;
     ESP_ERROR_CHECK(ledc_channel_config(&ch_b));
 
-    // 4. Initialize Safety Watchdog Timer
-    const esp_timer_create_args_t timer_args = {
-        .callback = &safety_timer_callback,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "motor_safety_timer",
-        .skip_unhandled_events = true
-    };
-    esp_timer_create(&timer_args, &s_safety_timer);
+    // 4. Initialize FreeRTOS One-Shot Safety Watchdog Timer
+    s_safety_timer = xTimerCreate(
+        "motor_safety_timer",
+        pdMS_TO_TICKS(MOTOR_MAX_RUNTIME_SEC * 1000),
+        pdFALSE,
+        NULL,
+        safety_timer_callback
+    );
 
     stop_bridge();
     ESP_LOGI(TAG, "Motors initialized with PWM on GPIO %d & %d (Duty ceiling: %d%%)",
@@ -86,8 +87,8 @@ void init_motors() {
 }
 
 void stop_bridge() {
-    if (s_safety_timer != NULL) {
-        esp_timer_stop(s_safety_timer);
+    if (s_safety_timer != NULL && xTimerIsTimerActive(s_safety_timer) != pdFALSE) {
+        xTimerStop(s_safety_timer, 0);
     }
 
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
@@ -135,10 +136,9 @@ void set_bridge_speed(int speed_pct) {
         ESP_LOGI(TAG, "Bridge Closing: %d%% speed, Duty: %lu/255", abs(speed_pct), (unsigned long)duty);
     }
 
-    // Arm auto-stop timer to ensure the motor never runs continuously indefinitely
+    // Arm or reset the auto-stop timer
     if (s_safety_timer != NULL) {
-        esp_timer_stop(s_safety_timer);
-        esp_timer_start_once(s_safety_timer, (uint64_t)MOTOR_MAX_RUNTIME_SEC * 1000000ULL);
+        xTimerReset(s_safety_timer, 0);
     }
 }
 

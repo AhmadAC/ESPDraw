@@ -30,6 +30,7 @@ const char HTML_UI[] = R"raw_html(
     button { width: 100%; padding: 14px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; margin-top:10px; transition: transform 0.1s; }
     button:active { transform: scale(0.96); opacity: 0.9; }
     .btn-green { background: #10b981; }
+    .btn-purple { background: #8b5cf6; }
     .btn-red { background: #ef4444; }
     .btn-gray { background: #475569; }
     .status-bar { padding: 12px; border-radius: 10px; font-weight: bold; text-align: center; font-size: 0.85rem; border: 1px solid; text-transform: uppercase; background: #172554; color: #93c5fd; border-color: #3b82f6; margin-bottom:15px; }
@@ -41,10 +42,11 @@ const char HTML_UI[] = R"raw_html(
     .gp-status { display: flex; align-items: center; justify-content: space-between; font-weight: bold; font-size: 0.9rem; margin-bottom: 8px; }
     .gp-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; background: #ef4444; }
     .gp-dot.active { background: #10b981; box-shadow: 0 0 8px #10b981; }
-    .gp-guide { font-size: 0.8rem; color: #cbd5e1; line-height: 1.5; margin: 0; padding-left: 18px; }
-    .gp-hud { display: flex; justify-content: space-around; margin-top: 10px; padding: 8px; background: #1e293b; border-radius: 8px; font-size: 0.8rem; font-weight: bold; }
-    .hud-tag { padding: 4px 8px; border-radius: 6px; background: #334155; }
-    .hud-tag.active { background: #0ea5e9; color: white; }
+    .gp-guide { font-size: 0.8rem; color: #cbd5e1; line-height: 1.6; margin: 0; padding-left: 18px; }
+    .gp-hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; text-align: center; font-size: 0.75rem; font-weight: bold; }
+    .hud-tag { padding: 6px 4px; border-radius: 6px; background: #334155; color: #94a3b8; }
+    .hud-tag.active { background: #0ea5e9; color: white; box-shadow: 0 0 6px #0ea5e9; }
+    .hud-tag.purple-active { background: #8b5cf6; color: white; box-shadow: 0 0 6px #8b5cf6; }
 
     input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 10px; border-radius: 5px; background: #334155; outline: none; margin: 12px 0; padding: 0; }
     input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #0ea5e9; cursor: pointer; border: 2px solid #ffffff; }
@@ -65,14 +67,16 @@ const char HTML_UI[] = R"raw_html(
                 </div>
                 <p id="gp_hint" class="text-sm" style="margin-bottom:8px; color:#f59e0b;">Pair Joy-Con or Switch Pro controller to phone and press any button.</p>
                 <ul class="gp-guide">
-                    <li><b>[A] Button:</b> Toggle Bridge (Open &harr; Close)</li>
+                    <li><b>[A] Button:</b> Toggle Clockwise (ON / OFF)</li>
+                    <li><b>[Y] Button:</b> Toggle Anti-Clockwise (ON / OFF)</li>
                     <li><b>[Left Stick &uarr;/&darr;]:</b> Adjust Turning Speed (20% - 100%)</li>
                     <li><b>[B] Button:</b> Stop Bridge Immediately</li>
                 </ul>
                 <div class="gp-hud">
-                    <span id="hud_a" class="hud-tag">A: RELEASED</span>
-                    <span id="hud_stick" class="hud-tag">Stick: 0.00</span>
-                    <span id="hud_spd" class="hud-tag">Target: 60%</span>
+                    <span id="hud_a" class="hud-tag">A (CW)</span>
+                    <span id="hud_y" class="hud-tag">Y (CCW)</span>
+                    <span id="hud_stick" class="hud-tag">Stick: 0.0</span>
+                    <span id="hud_spd" class="hud-tag">60%</span>
                 </div>
             </div>
         </div>
@@ -95,12 +99,9 @@ const char HTML_UI[] = R"raw_html(
 
             <div class="badge-safe">🛡️ Safe Power Limit: 80% Max Duty &bull; 15s Auto-Stop Protection Active</div>
 
-            <button class="btn-green" onclick="c('toggle')">TOGGLE BRIDGE (OPEN / CLOSE)</button>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top:5px;">
-                <button class="btn-gray" onclick="c('open')">Open Bridge</button>
-                <button class="btn-gray" onclick="c('close')">Close Bridge</button>
-            </div>
-            <button class="btn-red" onclick="c('stop')">STOP</button>
+            <button class="btn-green" onclick="c('toggle_cw')">TOGGLE CLOCKWISE (CW) [A]</button>
+            <button class="btn-purple" onclick="c('toggle_ccw')">TOGGLE ANTI-CLOCKWISE (CCW) [Y]</button>
+            <button class="btn-red" onclick="c('stop')">STOP [B]</button>
             
             <p id="cstat" class="text-sm" style="margin-top:15px; min-height: 1.2em;"></p>
         </div>
@@ -127,12 +128,13 @@ const char HTML_UI[] = R"raw_html(
         let currentMagnitude = 60;
         let isSliding = false;
         let lastBtnAState = false;
+        let lastBtnYState = false;
         let lastBtnBState = false;
         let lastStickTime = 0;
 
         function updateSpeedDisplay(val){
             document.getElementById('speedVal').innerText = val + "%";
-            document.getElementById('hud_spd').innerText = "Target: " + val + "%";
+            document.getElementById('hud_spd').innerText = val + "%";
             let s = document.getElementById('speed');
             if (s && !isSliding) s.value = val;
         }
@@ -189,6 +191,7 @@ const char HTML_UI[] = R"raw_html(
             const name = document.getElementById('gp_name');
             const hint = document.getElementById('gp_hint');
             const hudA = document.getElementById('hud_a');
+            const hudY = document.getElementById('hud_y');
             const hudStick = document.getElementById('hud_stick');
 
             if (activeGp) {
@@ -196,28 +199,41 @@ const char HTML_UI[] = R"raw_html(
                 name.innerText = activeGp.id.length > 25 ? activeGp.id.substring(0, 22) + "..." : activeGp.id;
                 hint.style.display = 'none';
 
-                // On Nintendo Switch / Standard Layout:
+                // Standard / Nintendo Switch Layout:
                 // buttons[1] = physical 'A' button (East)
+                // buttons[2] = physical 'Y' button (West)
                 // buttons[0] = physical 'B' button (South)
                 const btnA = (activeGp.buttons[1] && activeGp.buttons[1].pressed) || false;
+                const btnY = (activeGp.buttons[2] && activeGp.buttons[2].pressed) || false;
                 const btnB = (activeGp.buttons[0] && activeGp.buttons[0].pressed) || false;
 
-                // Visual Indicator for Button A
+                // Visual Indicator for Button A (Clockwise)
                 if (btnA) {
                     hudA.classList.add('active');
-                    hudA.innerText = "A: PRESSED";
                 } else {
                     hudA.classList.remove('active');
-                    hudA.innerText = "A: RELEASED";
                 }
 
-                // Rising-edge trigger for Button A: Toggle Bridge
+                // Visual Indicator for Button Y (Anti-Clockwise)
+                if (btnY) {
+                    hudY.classList.add('purple-active');
+                } else {
+                    hudY.classList.remove('purple-active');
+                }
+
+                // Rising-edge trigger for Button A: Toggle Clockwise (ON/OFF)
                 if (btnA && !lastBtnAState) {
-                    c('toggle');
+                    c('toggle_cw');
                 }
                 lastBtnAState = btnA;
 
-                // Rising-edge trigger for Button B: Stop
+                // Rising-edge trigger for Button Y: Toggle Anti-Clockwise (ON/OFF)
+                if (btnY && !lastBtnYState) {
+                    c('toggle_ccw');
+                }
+                lastBtnYState = btnY;
+
+                // Rising-edge trigger for Button B: Immediate Stop
                 if (btnB && !lastBtnBState) {
                     c('stop');
                 }
@@ -240,7 +256,7 @@ const char HTML_UI[] = R"raw_html(
                     stickDeflection = axisX;  // Pushing right increases speed
                 }
 
-                hudStick.innerText = "Stick: " + stickDeflection.toFixed(2);
+                hudStick.innerText = "Stick: " + stickDeflection.toFixed(1);
 
                 const now = Date.now();
                 if ((Math.abs(stickDeflection) > 0 || dpadUp || dpadDown) && (now - lastStickTime > 90)) {
@@ -248,7 +264,7 @@ const char HTML_UI[] = R"raw_html(
                     let step = 0;
                     if (dpadUp) step = 5;
                     else if (dpadDown) step = -5;
-                    else step = Math.round(stickDeflection * 5); // 1% to 5% incremental adjustment
+                    else step = Math.round(stickDeflection * 5);
 
                     if (step !== 0) {
                         currentMagnitude = Math.min(100, Math.max(20, currentMagnitude + step));
@@ -261,7 +277,7 @@ const char HTML_UI[] = R"raw_html(
                 name.innerText = "Controller Disconnected";
                 hint.style.display = 'block';
                 hudA.classList.remove('active');
-                hudA.innerText = "A: N/A";
+                hudY.classList.remove('purple-active');
                 hudStick.innerText = "Stick: N/A";
             }
 

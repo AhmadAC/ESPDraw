@@ -119,25 +119,25 @@ void set_bridge_speed(int speed_pct) {
     uint32_t duty = calculate_safe_duty(speed_pct);
 
     if (speed_pct > 0) {
-        // Forward / Opening
+        // Forward / Clockwise
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
 
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 
-        snprintf(last_command_str, sizeof(last_command_str), "OPENING (%d%%)", speed_pct);
-        ESP_LOGI(TAG, "Bridge Opening: %d%% speed, Duty: %lu/255", speed_pct, (unsigned long)duty);
+        snprintf(last_command_str, sizeof(last_command_str), "CLOCKWISE (%d%%)", speed_pct);
+        ESP_LOGI(TAG, "Bridge Clockwise: %d%% speed, Duty: %lu/255", speed_pct, (unsigned long)duty);
     } else {
-        // Reverse / Closing
+        // Reverse / Anti-Clockwise
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
 
-        snprintf(last_command_str, sizeof(last_command_str), "CLOSING (%d%%)", abs(speed_pct));
-        ESP_LOGI(TAG, "Bridge Closing: %d%% speed, Duty: %lu/255", abs(speed_pct), (unsigned long)duty);
+        snprintf(last_command_str, sizeof(last_command_str), "ANTI-CLOCKWISE (%d%%)", abs(speed_pct));
+        ESP_LOGI(TAG, "Bridge Anti-Clockwise: %d%% speed, Duty: %lu/255", abs(speed_pct), (unsigned long)duty);
     }
 
     // Arm or reset the auto-stop timer
@@ -171,14 +171,11 @@ void close_bridge() {
 void toggle_bridge() {
     int spd = (target_speed_magnitude > 0) ? target_speed_magnitude : MOTOR_DEFAULT_SPEED_PERCENT;
     if (current_speed_pct > 0) {
-        // Currently opening -> toggle to closing
         set_bridge_speed(-spd);
     } else if (current_speed_pct < 0) {
-        // Currently closing -> toggle to opening
         set_bridge_speed(spd);
     } else {
-        // Stopped -> alternate based on last known state
-        if (strstr(last_command_str, "OPEN") != NULL) {
+        if (strstr(last_command_str, "CLOCKWISE") != NULL && strstr(last_command_str, "ANTI") == NULL) {
             set_bridge_speed(-spd);
         } else {
             set_bridge_speed(spd);
@@ -186,12 +183,38 @@ void toggle_bridge() {
     }
 }
 
+void toggle_cw() {
+    int spd = (target_speed_magnitude > 0) ? target_speed_magnitude : MOTOR_DEFAULT_SPEED_PERCENT;
+    if (current_speed_pct > 0) {
+        // Currently moving clockwise -> turn OFF (Stop)
+        stop_bridge();
+    } else {
+        // Stopped or moving anti-clockwise -> turn ON (Clockwise)
+        set_bridge_speed(spd);
+    }
+}
+
+void toggle_ccw() {
+    int spd = (target_speed_magnitude > 0) ? target_speed_magnitude : MOTOR_DEFAULT_SPEED_PERCENT;
+    if (current_speed_pct < 0) {
+        // Currently moving anti-clockwise -> turn OFF (Stop)
+        stop_bridge();
+    } else {
+        // Stopped or moving clockwise -> turn ON (Anti-Clockwise)
+        set_bridge_speed(-spd);
+    }
+}
+
 void execute_bridge_command(const char* cmd) {
     if (cmd == NULL) return;
 
-    if (strcmp(cmd, "open") == 0) {
+    if (strcmp(cmd, "toggle_cw") == 0 || strcmp(cmd, "cw_toggle") == 0) {
+        toggle_cw();
+    } else if (strcmp(cmd, "toggle_ccw") == 0 || strcmp(cmd, "ccw_toggle") == 0) {
+        toggle_ccw();
+    } else if (strcmp(cmd, "open") == 0 || strcmp(cmd, "cw") == 0) {
         open_bridge();
-    } else if (strcmp(cmd, "close") == 0) {
+    } else if (strcmp(cmd, "close") == 0 || strcmp(cmd, "ccw") == 0) {
         close_bridge();
     } else if (strcmp(cmd, "toggle") == 0) {
         toggle_bridge();

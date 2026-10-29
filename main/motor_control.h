@@ -14,4 +14,6 @@ void set_speed_magnitude(int magnitude_pct);
 void open_bridge();
 void close_bridge();
 void toggle_bridge();
+void toggle_cw();
+void toggle_ccw();
 void stop_bridge();

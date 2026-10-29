@@ -16,7 +16,7 @@ static const char *TAG = "WEB_SERVER";
 httpd_handle_t server = NULL;
 
 /* ==============================================
-   HTML UI PAYLOAD
+   HTML UI PAYLOAD WITH NINTENDO GAMEPAD SUPPORT
    ============================================== */
 const char HTML_UI[] = R"raw_html(
 <!DOCTYPE html><html><head><meta charset="utf-8"><title>Drawbridge Controller</title><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -24,10 +24,10 @@ const char HTML_UI[] = R"raw_html(
     :root { --primary: #0ea5e9; --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; }
     body { font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 15px; display: flex; flex-direction: column; align-items: center; margin:0; }
     .container { width: 100%; max-width: 500px; }
-    .card { background: var(--card); padding: 25px; border-radius: 20px; border: 1px solid #334155; text-align: center; margin-bottom: 20px; }
-    h2 { color: var(--primary); margin-top: 0; }
+    .card { background: var(--card); padding: 22px; border-radius: 20px; border: 1px solid #334155; text-align: center; margin-bottom: 20px; box-sizing: border-box; }
+    h2 { color: var(--primary); margin-top: 0; font-size: 1.3rem; }
     input[type=password], select { width: 100%; padding: 12px; margin: 8px 0 20px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; }
-    button { width: 100%; padding: 15px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; margin-top:10px; transition: transform 0.1s; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; margin-top:10px; transition: transform 0.1s; }
     button:active { transform: scale(0.96); opacity: 0.9; }
     .btn-green { background: #10b981; }
     .btn-red { background: #ef4444; }
@@ -35,6 +35,17 @@ const char HTML_UI[] = R"raw_html(
     .status-bar { padding: 12px; border-radius: 10px; font-weight: bold; text-align: center; font-size: 0.85rem; border: 1px solid; text-transform: uppercase; background: #172554; color: #93c5fd; border-color: #3b82f6; margin-bottom:15px; }
     .text-sm { font-size: 0.85rem; color: #94a3b8; margin-bottom:10px; }
     .badge-safe { font-size: 0.76rem; background: #064e3b; color: #6ee7b7; padding: 7px 10px; border-radius: 8px; border: 1px solid #059669; margin: 12px 0 16px 0; display: block; }
+    
+    /* Gamepad Card Styles */
+    .gp-box { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 14px; text-align: left; margin-bottom: 12px; }
+    .gp-status { display: flex; align-items: center; justify-content: space-between; font-weight: bold; font-size: 0.9rem; margin-bottom: 8px; }
+    .gp-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; background: #ef4444; }
+    .gp-dot.active { background: #10b981; box-shadow: 0 0 8px #10b981; }
+    .gp-guide { font-size: 0.8rem; color: #cbd5e1; line-height: 1.5; margin: 0; padding-left: 18px; }
+    .gp-hud { display: flex; justify-content: space-around; margin-top: 10px; padding: 8px; background: #1e293b; border-radius: 8px; font-size: 0.8rem; font-weight: bold; }
+    .hud-tag { padding: 4px 8px; border-radius: 6px; background: #334155; }
+    .hud-tag.active { background: #0ea5e9; color: white; }
+
     input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 10px; border-radius: 5px; background: #334155; outline: none; margin: 12px 0; padding: 0; }
     input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #0ea5e9; cursor: pointer; border: 2px solid #ffffff; }
     input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: #0ea5e9; cursor: pointer; border: 2px solid #ffffff; }
@@ -42,29 +53,54 @@ const char HTML_UI[] = R"raw_html(
 </head>
 <body>
     <div class="container">
-        <div class="status-bar">DRAWBRIDGE DASHBOARD</div>
+        <div class="status-bar">DRAWBRIDGE CONTROLLER DASHBOARD</div>
+
+        <!-- Gamepad Integration Card -->
+        <div class="card">
+            <h2>🎮 Nintendo Controller Input</h2>
+            <div class="gp-box">
+                <div class="gp-status">
+                    <span><span id="gp_dot" class="gp-dot"></span><span id="gp_name">Controller Disconnected</span></span>
+                    <span id="gp_badge" style="font-size:0.75rem; color:#94a3b8;">Bluetooth / USB</span>
+                </div>
+                <p id="gp_hint" class="text-sm" style="margin-bottom:8px; color:#f59e0b;">Pair Joy-Con or Switch Pro controller to phone and press any button.</p>
+                <ul class="gp-guide">
+                    <li><b>[A] Button:</b> Toggle Bridge (Open &harr; Close)</li>
+                    <li><b>[Left Stick &uarr;/&darr;]:</b> Adjust Turning Speed (20% - 100%)</li>
+                    <li><b>[B] Button:</b> Stop Bridge Immediately</li>
+                </ul>
+                <div class="gp-hud">
+                    <span id="hud_a" class="hud-tag">A: RELEASED</span>
+                    <span id="hud_stick" class="hud-tag">Stick: 0.00</span>
+                    <span id="hud_spd" class="hud-tag">Target: 60%</span>
+                </div>
+            </div>
+        </div>
 
         <!-- Controls Card -->
         <div class="card">
-            <h2>Control Bridge</h2>
-            <div class="text-sm"><b>Current State:</b> <span id="lastcmd" style="color:#38bdf8;">Loading...</span></div>
+            <h2>Bridge Controls</h2>
+            <div class="text-sm"><b>Current State:</b> <span id="lastcmd" style="color:#38bdf8; font-weight:bold;">Loading...</span></div>
             
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px;">
-                <span style="font-weight:bold; font-size:0.9rem;">Speed & Direction:</span>
-                <span id="speedVal" style="font-weight:bold; color:#38bdf8;">0% (STOPPED)</span>
+                <span style="font-weight:bold; font-size:0.9rem;">Turning Speed:</span>
+                <span id="speedVal" style="font-weight:bold; color:#38bdf8;">60%</span>
             </div>
 
-            <input type="range" id="speed" min="-100" max="100" value="0" step="5" oninput="onSliderInput(this.value)" onchange="onSliderChange(this.value)">
+            <input type="range" id="speed" min="20" max="100" value="60" step="5" oninput="onSliderInput(this.value)" onchange="onSliderChange(this.value)">
             
             <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#94a3b8; margin-top:-8px; margin-bottom:10px;">
-                <span>-100% (Close)</span><span>0% (Stop)</span><span>+100% (Open)</span>
+                <span>20% (Minimum)</span><span>60% (Default)</span><span>100% (Maximum)</span>
             </div>
 
             <div class="badge-safe">🛡️ Safe Power Limit: 80% Max Duty &bull; 15s Auto-Stop Protection Active</div>
 
-            <button class="btn-green" onclick="c('open')">OPEN BRIDGE</button>
-            <button class="btn-red" onclick="c('close')">CLOSE BRIDGE</button>
-            <button class="btn-gray" onclick="c('stop')">STOP</button>
+            <button class="btn-green" onclick="c('toggle')">TOGGLE BRIDGE (OPEN / CLOSE)</button>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top:5px;">
+                <button class="btn-gray" onclick="c('open')">Open Bridge</button>
+                <button class="btn-gray" onclick="c('close')">Close Bridge</button>
+            </div>
+            <button class="btn-red" onclick="c('stop')">STOP</button>
             
             <p id="cstat" class="text-sm" style="margin-top:15px; min-height: 1.2em;"></p>
         </div>
@@ -88,35 +124,39 @@ const char HTML_UI[] = R"raw_html(
     </div>
 
     <script>
+        let currentMagnitude = 60;
         let isSliding = false;
+        let lastBtnAState = false;
+        let lastBtnBState = false;
+        let lastStickTime = 0;
 
-        function updateSpeedLabel(val){
-            let num = parseInt(val, 10);
-            let label = num + "%";
-            if (num > 0) label += " (OPEN)";
-            else if (num < 0) label += " (CLOSE)";
-            else label += " (STOPPED)";
-            document.getElementById('speedVal').innerText = label;
+        function updateSpeedDisplay(val){
+            document.getElementById('speedVal').innerText = val + "%";
+            document.getElementById('hud_spd').innerText = "Target: " + val + "%";
+            let s = document.getElementById('speed');
+            if (s && !isSliding) s.value = val;
         }
 
         function onSliderInput(val){
             isSliding = true;
-            updateSpeedLabel(val);
+            currentMagnitude = parseInt(val, 10);
+            updateSpeedDisplay(currentMagnitude);
         }
 
         function onSliderChange(val){
             isSliding = false;
-            updateSpeedLabel(val);
-            sendSpeed(val);
+            currentMagnitude = parseInt(val, 10);
+            updateSpeedDisplay(currentMagnitude);
+            sendSpeed(currentMagnitude);
         }
 
         function sendSpeed(val){
             document.getElementById('cstat').innerText = 'Setting speed: ' + val + '%...';
-            fetch('/speed?val=' + val)
+            fetch('/speed?mag=' + val)
                 .then(r => r.text())
-                .then(t => {
+                .then(() => {
                     document.getElementById('cstat').innerText = 'Speed updated: ' + val + '%';
-                    setTimeout(loadStatus, 400);
+                    setTimeout(loadStatus, 300);
                 })
                 .catch(() => {
                     document.getElementById('cstat').innerText = 'Speed update failed';
@@ -130,7 +170,108 @@ const char HTML_UI[] = R"raw_html(
                 setTimeout(loadStatus, 400);
             });
         }
-        
+
+        /* ========================================================
+           NINTENDO SWITCH CONTROLLER & GAMEPAD API ENGINE
+           ======================================================== */
+        function pollGamepads() {
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            let activeGp = null;
+
+            for (let i = 0; i < gamepads.length; i++) {
+                if (gamepads[i] && gamepads[i].connected) {
+                    activeGp = gamepads[i];
+                    break;
+                }
+            }
+
+            const dot = document.getElementById('gp_dot');
+            const name = document.getElementById('gp_name');
+            const hint = document.getElementById('gp_hint');
+            const hudA = document.getElementById('hud_a');
+            const hudStick = document.getElementById('hud_stick');
+
+            if (activeGp) {
+                dot.classList.add('active');
+                name.innerText = activeGp.id.length > 25 ? activeGp.id.substring(0, 22) + "..." : activeGp.id;
+                hint.style.display = 'none';
+
+                // On Nintendo Switch / Standard Layout:
+                // buttons[1] = physical 'A' button (East)
+                // buttons[0] = physical 'B' button (South)
+                const btnA = (activeGp.buttons[1] && activeGp.buttons[1].pressed) || false;
+                const btnB = (activeGp.buttons[0] && activeGp.buttons[0].pressed) || false;
+
+                // Visual Indicator for Button A
+                if (btnA) {
+                    hudA.classList.add('active');
+                    hudA.innerText = "A: PRESSED";
+                } else {
+                    hudA.classList.remove('active');
+                    hudA.innerText = "A: RELEASED";
+                }
+
+                // Rising-edge trigger for Button A: Toggle Bridge
+                if (btnA && !lastBtnAState) {
+                    c('toggle');
+                }
+                lastBtnAState = btnA;
+
+                // Rising-edge trigger for Button B: Stop
+                if (btnB && !lastBtnBState) {
+                    c('stop');
+                }
+                lastBtnBState = btnB;
+
+                // Left Joystick handling (Vertical axis = axes[1], Horizontal axis = axes[0])
+                const axisY = activeGp.axes.length > 1 ? activeGp.axes[1] : 0;
+                const axisX = activeGp.axes.length > 0 ? activeGp.axes[0] : 0;
+                
+                // D-Pad Up / Down compatibility
+                const dpadUp = (activeGp.buttons[12] && activeGp.buttons[12].pressed) || false;
+                const dpadDown = (activeGp.buttons[13] && activeGp.buttons[13].pressed) || false;
+
+                const DEADZONE = 0.22;
+                let stickDeflection = 0;
+
+                if (Math.abs(axisY) > DEADZONE) {
+                    stickDeflection = -axisY; // Pushing up increases speed
+                } else if (Math.abs(axisX) > DEADZONE) {
+                    stickDeflection = axisX;  // Pushing right increases speed
+                }
+
+                hudStick.innerText = "Stick: " + stickDeflection.toFixed(2);
+
+                const now = Date.now();
+                if ((Math.abs(stickDeflection) > 0 || dpadUp || dpadDown) && (now - lastStickTime > 90)) {
+                    lastStickTime = now;
+                    let step = 0;
+                    if (dpadUp) step = 5;
+                    else if (dpadDown) step = -5;
+                    else step = Math.round(stickDeflection * 5); // 1% to 5% incremental adjustment
+
+                    if (step !== 0) {
+                        currentMagnitude = Math.min(100, Math.max(20, currentMagnitude + step));
+                        updateSpeedDisplay(currentMagnitude);
+                        sendSpeed(currentMagnitude);
+                    }
+                }
+            } else {
+                dot.classList.remove('active');
+                name.innerText = "Controller Disconnected";
+                hint.style.display = 'block';
+                hudA.classList.remove('active');
+                hudA.innerText = "A: N/A";
+                hudStick.innerText = "Stick: N/A";
+            }
+
+            requestAnimationFrame(pollGamepads);
+        }
+
+        window.addEventListener("gamepadconnected", () => {
+            console.log("Gamepad connected successfully");
+        });
+
         function scan(){
             document.getElementById('status').innerText = 'Scanning...';
             fetch('/scan').then(r=>r.json()).then(d=>{
@@ -160,16 +301,18 @@ const char HTML_UI[] = R"raw_html(
         function loadStatus(){
             fetch('/status').then(r=>r.json()).then(d=>{
                 document.getElementById('lastcmd').innerText = d.last_cmd;
-                if (!isSliding && d.speed !== undefined) {
-                    let slider = document.getElementById('speed');
-                    slider.value = d.speed;
-                    updateSpeedLabel(d.speed);
+                if (!isSliding && d.target_speed !== undefined) {
+                    currentMagnitude = d.target_speed;
+                    updateSpeedDisplay(currentMagnitude);
                 }
             }).catch(()=>{});
         }
 
         setInterval(loadStatus, 2500);
-        window.onload = loadStatus;
+        window.onload = function() {
+            loadStatus();
+            requestAnimationFrame(pollGamepads);
+        };
     </script>
 </body></html>
 )raw_html";
@@ -210,6 +353,11 @@ static esp_err_t speed_get_handler(httpd_req_t *req) {
     char buf[64];
     if (httpd_req_get_url_query_str(req, buf, sizeof(buf)) == ESP_OK) {
         char val[32];
+        if (httpd_query_key_value(buf, "mag", val, sizeof(val)) == ESP_OK) {
+            set_speed_magnitude(atoi(val));
+            httpd_resp_sendstr(req, "Magnitude OK");
+            return ESP_OK;
+        }
         if (httpd_query_key_value(buf, "val", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(buf, "speed", val, sizeof(val)) == ESP_OK) {
             set_bridge_speed(atoi(val));
@@ -217,7 +365,7 @@ static esp_err_t speed_get_handler(httpd_req_t *req) {
             return ESP_OK;
         }
     }
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing val parameter");
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing val or mag parameter");
     return ESP_FAIL;
 }
 
@@ -225,6 +373,7 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "last_cmd", last_command_str);
     cJSON_AddNumberToObject(root, "speed", current_speed_pct);
+    cJSON_AddNumberToObject(root, "target_speed", target_speed_magnitude);
     cJSON_AddNumberToObject(root, "max_limit", MOTOR_MAX_SAFE_DUTY_PERCENT);
 
     char *json_str = cJSON_PrintUnformatted(root);

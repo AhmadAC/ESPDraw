@@ -11,6 +11,7 @@
 static const char *TAG = "MOTOR";
 char last_command_str[32] = "STOPPED";
 int current_speed_pct = 0;
+int target_speed_magnitude = MOTOR_DEFAULT_SPEED_PERCENT;
 static TimerHandle_t s_safety_timer = NULL;
 
 static void safety_timer_callback(TimerHandle_t xTimer) {
@@ -106,6 +107,9 @@ void set_bridge_speed(int speed_pct) {
     if (speed_pct < -100) speed_pct = -100;
 
     current_speed_pct = speed_pct;
+    if (abs(speed_pct) > 0) {
+        target_speed_magnitude = abs(speed_pct);
+    }
 
     if (speed_pct == 0) {
         stop_bridge();
@@ -142,14 +146,44 @@ void set_bridge_speed(int speed_pct) {
     }
 }
 
+void set_speed_magnitude(int magnitude_pct) {
+    if (magnitude_pct < 0) magnitude_pct = 0;
+    if (magnitude_pct > 100) magnitude_pct = 100;
+    target_speed_magnitude = magnitude_pct;
+
+    if (current_speed_pct > 0) {
+        set_bridge_speed(magnitude_pct);
+    } else if (current_speed_pct < 0) {
+        set_bridge_speed(-magnitude_pct);
+    }
+}
+
 void open_bridge() {
-    int spd = (current_speed_pct > 0) ? current_speed_pct : MOTOR_DEFAULT_SPEED_PERCENT;
+    int spd = (target_speed_magnitude > 0) ? target_speed_magnitude : MOTOR_DEFAULT_SPEED_PERCENT;
     set_bridge_speed(spd);
 }
 
 void close_bridge() {
-    int spd = (current_speed_pct < 0) ? current_speed_pct : -MOTOR_DEFAULT_SPEED_PERCENT;
-    set_bridge_speed(spd);
+    int spd = (target_speed_magnitude > 0) ? target_speed_magnitude : MOTOR_DEFAULT_SPEED_PERCENT;
+    set_bridge_speed(-spd);
+}
+
+void toggle_bridge() {
+    int spd = (target_speed_magnitude > 0) ? target_speed_magnitude : MOTOR_DEFAULT_SPEED_PERCENT;
+    if (current_speed_pct > 0) {
+        // Currently opening -> toggle to closing
+        set_bridge_speed(-spd);
+    } else if (current_speed_pct < 0) {
+        // Currently closing -> toggle to opening
+        set_bridge_speed(spd);
+    } else {
+        // Stopped -> alternate based on last known state
+        if (strstr(last_command_str, "OPEN") != NULL) {
+            set_bridge_speed(-spd);
+        } else {
+            set_bridge_speed(spd);
+        }
+    }
 }
 
 void execute_bridge_command(const char* cmd) {
@@ -159,6 +193,8 @@ void execute_bridge_command(const char* cmd) {
         open_bridge();
     } else if (strcmp(cmd, "close") == 0) {
         close_bridge();
+    } else if (strcmp(cmd, "toggle") == 0) {
+        toggle_bridge();
     } else if (strcmp(cmd, "stop") == 0) {
         stop_bridge();
     } else if (strncmp(cmd, "speed=", 6) == 0) {
